@@ -1,29 +1,77 @@
-import express from "express";
-import cors from "cors";
-import fetch from "node-fetch";
+const express = require("express");
+const cors = require("cors");
+const axios = require("axios");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔴 فعلاً تستی (بعداً زرین‌پال می‌ذاریم)
-const MERCHANT_ID = "TEST";
+const WALLET = "TCTvRJwQZEVtUz8Ai9ZjxRVjChzezs1DXN";
 
-app.post("/pay", async (req, res) => {
+// ذخیره سفارش‌ها (موقت)
+let orders = {};
+
+// ساخت سفارش
+app.post("/pay", (req, res) => {
   const amount = req.body.amount;
 
-  console.log("Amount received:", amount);
+  if(!amount){
+    return res.status(400).json({ error: "No amount" });
+  }
 
-  // فعلاً لینک تستی می‌سازیم
+  const orderId = "AR" + Date.now();
+
+  orders[orderId] = {
+    amount,
+    paid: false
+  };
+
   res.json({
-    url: "https://example.com/payment?amount=" + amount
+    orderId,
+    amount,
+    wallet: WALLET
   });
 });
 
-app.get("/", (req, res) => {
-  res.send("Server is running 🚀");
+// چک کردن وضعیت پرداخت
+app.get("/check/:orderId", async (req, res) => {
+  const order = orders[req.params.orderId];
+
+  if(!order){
+    return res.json({ error: "Order not found" });
+  }
+
+  try {
+    // گرفتن تراکنش‌های ولت از TRON
+    const response = await axios.get(
+      `https://api.trongrid.io/v1/accounts/${WALLET}/transactions/trc20`
+    );
+
+    const txs = response.data.data || [];
+
+    // چک ساده (بر اساس مقدار)
+    const found = txs.find(tx =>
+      Number(tx.value) / 1000000 >= order.amount &&
+      tx.to === WALLET
+    );
+
+    if(found){
+      order.paid = true;
+    }
+
+    res.json({
+      paid: order.paid,
+      orderId: req.params.orderId
+    });
+
+  } catch(err){
+    res.json({ error: "Network error" });
+  }
 });
 
-app.listen(3000, () => {
-  console.log("Server started on port 3000");
+app.get("/", (req, res) => {
+  res.send("AR Store Pro Backend Running 🚀");
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("Running"));
